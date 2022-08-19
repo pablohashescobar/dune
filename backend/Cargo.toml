@@ -12,8 +12,11 @@ dotenv = "0.15"
 listenfd = "1.0"
 log = "0.4"
 env_logger = "0.6"
-serde = "1.0"
+serde =  { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-uuid = { version = "1.1", features = ["serde", "v4"] }
+uuid = { version = "0.8.2", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
-diesel = { version = "1.4", features = ["postgres"] }
+diesel = {version = "1.4", features = ["chrono", "postgres", "r2d2", "uuidv07"]}
+diesel_migrations = "1.4"
+r2d2 = "0.8"
+lazy_static = "1.4"
