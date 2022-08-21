@@ -2,15 +2,13 @@ use crate::api_error::ApiError;
 use crate::db;
 use crate::schema::user;
 use argon2::Config;
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::env;
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Queryable, Insertable)]
+#[derive(Serialize, Deserialize, Queryable, Insertable, Clone)]
 #[table_name = "user"]
 pub struct User {
     pub id: Uuid,
@@ -38,10 +36,6 @@ pub struct LoginRequest {
     pub password: String,
     pub username: String,
 }
-#[derive(Serialize)]
-pub struct AuthResponse {
-    pub token: String,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
@@ -55,11 +49,30 @@ struct Claims {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthUser {
     pub id: Uuid,
+    pub email: String,
+    pub name: String,
+    pub username: String,
 }
 
 impl From<Claims> for AuthUser {
     fn from(claims: Claims) -> Self {
-        AuthUser { id: claims.sub }
+        AuthUser {
+            id: claims.sub,
+            email: claims.email,
+            name: claims.name,
+            username: claims.username,
+        }
+    }
+}
+
+impl From<User> for AuthUser {
+    fn from(user: User) -> Self {
+        AuthUser {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            username: user.username,
+        }
     }
 }
 
@@ -143,40 +156,6 @@ impl User {
     pub fn verify_password(&self, password: &[u8]) -> Result<bool, ApiError> {
         argon2::verify_encoded(&self.password, password)
             .map_err(|e| ApiError::new(500, format!("Failed to verify password: {}", e)))
-    }
-
-    pub fn generate_token(self) -> Result<String, ApiError> {
-        let date: DateTime<Utc> = Utc::now() + Duration::hours(1);
-        let claims = Claims {
-            sub: self.id,
-            name: self.name,
-            username: self.username,
-            email: self.email,
-            exp: date.timestamp() as usize,
-        };
-
-        let secret_key = env::var("SECRET_TOKEN").expect("Secret Token not set");
-
-        let token = encode(
-            &Header::default(),
-            &claims,
-            &EncodingKey::from_secret(secret_key.as_bytes()),
-        )
-        .unwrap();
-
-        Ok(token)
-    }
-
-    pub fn decode_token(token: &str) -> Result<AuthUser, ApiError> {
-        let secret_key = env::var("SECRET_TOKEN").expect("Secret Token not set");
-
-        decode::<Claims>(
-            token,
-            &DecodingKey::from_secret(secret_key.as_bytes()),
-            &Validation::default(),
-        )
-        .map(|data| data.claims.into())
-        .map_err(|e| ApiError::new(401, format!("Unknown Error: {}", e)))
     }
 }
 

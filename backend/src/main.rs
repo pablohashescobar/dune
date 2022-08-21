@@ -5,11 +5,11 @@ extern crate diesel;
 #[macro_use]
 extern crate diesel_migrations;
 
+use actix_identity::{CookieIdentityPolicy, IdentityService};
 use actix_web::{middleware, web, App, HttpServer};
 use dotenv::dotenv;
 use listenfd::ListenFd;
 use std::env;
-
 mod api_error;
 mod db;
 mod schema;
@@ -20,14 +20,23 @@ async fn main() -> std::io::Result<()> {
     dotenv().ok();
     env_logger::init();
 
+    let secret_key = env::var("SECRET_TOKEN").expect("SECRET_TOKEN   NOT SET");
+    let domain: String = std::env::var("DOMAIN").unwrap_or_else(|_| "localhost".to_string());
+
     db::init();
 
     let mut listenfd = ListenFd::from_env();
 
-    let mut server = HttpServer::new(|| {
+    let mut server = HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
-            .configure(user::init_routes)
+            .wrap(IdentityService::new(
+                CookieIdentityPolicy::new(secret_key.as_bytes())
+                    .name("auth")
+                    .path("/")
+                    .domain(domain.as_str())
+                    .secure(false), // this can only be true if you have https
+            ))
             .service(web::scope("/api").configure(user::init_routes))
     });
     server = match listenfd.take_tcp_listener(0)? {
