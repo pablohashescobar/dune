@@ -3,7 +3,7 @@ use actix_web::{dev::Payload, FromRequest, HttpRequest};
 use futures::future::{err, ok, Ready};
 
 use crate::api_error::ApiError;
-use crate::user::AuthUser;
+use crate::models::AuthUser;
 
 pub type LoggedUser = AuthUser;
 

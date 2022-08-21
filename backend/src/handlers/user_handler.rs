@@ -1,5 +1,5 @@
 use crate::api_error::ApiError;
-use crate::user::{AuthUser, LoginRequest, User, UserMessage};
+use crate::models::{AuthUser, LoginRequest, User, UserMessage};
 use actix_identity::Identity;
 use actix_web::{delete, get, post, put, web, HttpResponse};
 
@@ -82,7 +82,7 @@ async fn delete(identity: AuthUser, id: Identity) -> Result<HttpResponse, ApiErr
     Ok(HttpResponse::Ok().json(json!({ "deleted": num_deleted })))
 }
 
-pub fn init_routes(cfg: &mut web::ServiceConfig) {
+pub fn user_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(find_all);
     cfg.service(find);
     cfg.service(register);
