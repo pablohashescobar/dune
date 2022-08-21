@@ -75,9 +75,10 @@ async fn update(
     Ok(HttpResponse::Ok().json(user))
 }
 
-#[delete("/users/{id}/")]
-async fn delete(id: web::Path<Uuid>) -> Result<HttpResponse, ApiError> {
-    let num_deleted = User::delete(id.into_inner())?;
+#[delete("/users/")]
+async fn delete(identity: AuthUser, id: Identity) -> Result<HttpResponse, ApiError> {
+    let num_deleted = User::delete(identity.id)?;
+    id.forget();
     Ok(HttpResponse::Ok().json(json!({ "deleted": num_deleted })))
 }
 
