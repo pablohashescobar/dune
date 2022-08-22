@@ -7,6 +7,8 @@ table! {
         creator_id -> Nullable<Uuid>,
         git_url -> Nullable<Text>,
         max_cyclomatic_complex -> Int4,
+        created_at -> Timestamp,
+        updated_at -> Nullable<Timestamp>,
     }
 }
 

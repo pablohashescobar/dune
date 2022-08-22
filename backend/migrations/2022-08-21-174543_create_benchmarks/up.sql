@@ -6,5 +6,7 @@ CREATE TABLE "benchmark" (
         difficulty TEXT NOT NULL,
         creator_id UUID,
         git_url TEXT,
-        max_cyclomatic_complex INTEGER NOT NULL DEFAULT 10
+        max_cyclomatic_complex INTEGER NOT NULL DEFAULT 10,
+        created_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
+        updated_at TIMESTAMP
 );

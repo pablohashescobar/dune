@@ -148,12 +148,12 @@ impl Submission {
             cyclomatic_complexity: submission.cyclomatic_complexity,
         };
 
-        let user = diesel::update(submission::table)
+        let benchmark = diesel::update(submission::table)
             .filter(submission::id.eq(id))
             .set(submission)
             .get_result(&conn)?;
 
-        Ok(user)
+        Ok(benchmark)
     }
 
     pub fn delete(id: Uuid) -> Result<usize, ApiError> {
