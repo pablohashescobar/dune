@@ -38,7 +38,11 @@ async fn main() -> std::io::Result<()> {
                     .domain(domain.as_str())
                     .secure(false), // this can only be true if you have https
             ))
-            .service(web::scope("/api").configure(handlers::user_routes))
+            .service(
+                web::scope("/api")
+                    .configure(handlers::user_routes)
+                    .configure(handlers::submission_routes),
+            )
     });
     server = match listenfd.take_tcp_listener(0)? {
         Some(listener) => server.listen(listener)?,

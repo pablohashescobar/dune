@@ -19,7 +19,7 @@ table! {
         updated_at -> Nullable<Timestamp>,
         user_id -> Uuid,
         status -> Text,
-        benchmark_id -> Uuid,
+        benchmark_id -> Nullable<Uuid>,
         stdout -> Nullable<Text>,
         stderr -> Nullable<Text>,
         exec_duration -> Int4,
@@ -30,7 +30,6 @@ table! {
         mem_usage -> Int4,
         code_hash -> Nullable<Text>,
         cyclomatic_complexity -> Int4,
-        lint_errors -> Nullable<Jsonb>,
     }
 }
 

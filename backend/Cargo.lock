@@ -318,6 +318,7 @@ dependencies = [
  "actix-identity",
  "actix-rt",
  "actix-web",
+ "base64",
  "chrono",
  "derive_more",
  "diesel",
@@ -333,6 +334,7 @@ dependencies = [
  "rust-argon2",
  "serde",
  "serde_json",
+ "sha2",
  "uuid 0.8.2",
 ]
 

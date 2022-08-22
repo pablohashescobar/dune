@@ -7,7 +7,7 @@ CREATE TABLE "submission" (
     updated_at TIMESTAMP,
     user_id UUID NOT NULL,
     status TEXT NOT NULL,
-    benchmark_id UUID NOT NULL,
+    benchmark_id UUID,
     stdout TEXT,
     stderr TEXT,
     exec_duration INTEGER NOT NULL DEFAULT 0,
@@ -17,6 +17,5 @@ CREATE TABLE "submission" (
     quality_score INTEGER DEFAULT 0,
     mem_usage INTEGER NOT NULL DEFAULT 0,
     code_hash TEXT,
-    cyclomatic_complexity INTEGER NOT NULL DEFAULT 0,
-    lint_errors jsonb
+    cyclomatic_complexity INTEGER NOT NULL DEFAULT 0
 );
