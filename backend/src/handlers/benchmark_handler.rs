@@ -46,3 +46,11 @@ async fn delete(id: web::Path<Uuid>) -> Result<HttpResponse, ApiError> {
 
     Ok(HttpResponse::Ok().json(json!({ "deleted": num_deleted })))
 }
+
+pub fn benchmark_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(find_all);
+    cfg.service(find);
+    cfg.service(create);
+    cfg.service(update);
+    cfg.service(delete);
+}

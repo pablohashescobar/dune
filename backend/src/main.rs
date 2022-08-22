@@ -41,7 +41,8 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api")
                     .configure(handlers::user_routes)
-                    .configure(handlers::submission_routes),
+                    .configure(handlers::submission_routes)
+                    .configure(handlers::benchmark_routes),
             )
     });
     server = match listenfd.take_tcp_listener(0)? {
