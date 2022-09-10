@@ -19,12 +19,14 @@ import (
 	"time"
 
 	firecracker "github.com/firecracker-microvm/firecracker-go-sdk"
-	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
+	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/imroc/req"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
 )
+
+// Entry point
 
 type jobQueue struct {
 	ch    *amqp.Channel
@@ -60,13 +62,21 @@ type jobStatus struct {
 	MemUsage     int64  `json:"mem_usage"`
 }
 
-var queue jobQueue
-
 type benchJob struct {
 	ID       string `json:"id"`
 	Language string `json:"language"`
 	Code     string `json:"code"`
 }
+
+type runningFirecracker struct {
+	vmmCtx    context.Context
+	vmmCancel context.CancelFunc
+	vmmID     string
+	machine   *firecracker.Machine
+	ip        net.IP
+}
+
+var queue jobQueue
 
 func (q jobQueue) setjobStatus(ctx context.Context, job benchJob, status string, res agentExecRes) error {
 	log.WithField("status", status).Info("Set job status")
@@ -221,27 +231,86 @@ func (q jobQueue) getQueueForJob(ctx context.Context) error {
 	)
 }
 
-func deleteVMMSockets() {
-	log.Debug("cc")
-	dir, err := ioutil.ReadDir(os.TempDir())
+// The original Method which hits the agent with the code to run and updates the status with response.
+func (job benchJob) run(ctx context.Context, WarmVMs <-chan runningFirecracker) {
+	log.WithField("job", job).Info("Handling job")
+
+	err := queue.setjobReceived(ctx, job)
 	if err != nil {
-		log.WithError(err).Error("Failed to read directory")
+		log.WithError(err).Error("Could not set job received")
+		queue.setjobFailed(ctx, job, agentExecRes{Error: err.Error()})
+		return
 	}
-	for _, d := range dir {
-		log.WithField("d", d.Name()).Debug("considering")
-		if strings.Contains(d.Name(), fmt.Sprintf(".firecracker.sock-%d-", os.Getpid())) {
-			log.WithField("d", d.Name()).Debug("should delete")
-			os.Remove(path.Join([]string{"tmp", d.Name()}...))
-		}
+
+	// Get a ready-to-use microVM from the pool
+	vm := <-WarmVMs
+
+	// Defer cleanup of VM and VMM
+	go func() {
+		defer vm.vmmCancel()
+		vm.machine.Wait(vm.vmmCtx)
+	}()
+	defer vm.shutDown()
+
+	var reqJSON []byte
+
+	reqJSON, err = json.Marshal(agentRunReq{
+		ID:       job.ID,
+		Language: job.Language,
+		Code:     job.Code,
+		Variant:  "TODO",
+	})
+	if err != nil {
+		log.WithError(err).Error("Failed to marshal JSON request")
+		queue.setjobFailed(ctx, job, agentExecRes{Error: err.Error()})
+		return
+	}
+
+	err = queue.setjobRunning(ctx, job)
+	if err != nil {
+		log.WithError(err).Error("Could not set job running")
+		queue.setjobFailed(ctx, job, agentExecRes{Error: err.Error()})
+		return
+	}
+
+	var httpRes *http.Response
+	var agentRes agentExecRes
+
+	httpRes, err = http.Post("http://"+vm.ip.String()+":8080/run", "application/json", bytes.NewBuffer(reqJSON))
+	if err != nil {
+		log.WithError(err).Error("Failed to request execution to agent")
+		queue.setjobFailed(ctx, job, agentExecRes{Error: err.Error()})
+		return
+	}
+	json.NewDecoder(httpRes.Body).Decode(&agentRes)
+	log.WithField("result", agentRes).Info("Job execution finished")
+	if httpRes.StatusCode != 200 {
+		log.WithFields(log.Fields{
+			"httpRes":  httpRes,
+			"agentRes": agentRes,
+			"reqJSON":  string(reqJSON),
+		}).Error("Failed to compile and run code")
+		queue.setjobFailed(ctx, job, agentRes)
+		return
+	}
+
+	err = queue.setjobResult(ctx, job, agentRes)
+	if err != nil {
+		queue.setjobFailed(ctx, job, agentExecRes{Error: err.Error()})
 	}
 }
 
-type runningFirecracker struct {
-	vmmCtx    context.Context
-	vmmCancel context.CancelFunc
-	vmmID     string
-	machine   *firecracker.Machine
-	ip        net.IP
+func (vm runningFirecracker) shutDown() {
+	log.WithField("ip", vm.ip).Info("stopping")
+	vm.machine.StopVMM()
+	err := os.Remove(vm.machine.Cfg.SocketPath)
+	if err != nil {
+		log.WithError(err).Error("Failed to delete firecracker socket")
+	}
+	err = os.Remove("/tmp/rootfs-" + vm.vmmID + ".ext4")
+	if err != nil {
+		log.WithError(err).Error("Failed to delete firecracker rootfs")
+	}
 }
 
 func main() {
@@ -401,10 +470,14 @@ func getFirecrackerConfig(vmmID string) (firecracker.Config, error) {
 }
 
 func createAndStartVM(ctx context.Context) (*runningFirecracker, error) {
+
+	//Create new uuid
 	vmmID := xid.New().String()
 
+	//Copy the rootfs from agent to temporary folder
 	copy("../agent/rootfs.ext4", "/tmp/rootfs-"+vmmID+".ext4")
 
+	// Get firecracker Config for the ID
 	fcCfg, err := getFirecrackerConfig(vmmID)
 	if err != nil {
 		log.Errorf("Error: %s", err)
@@ -421,6 +494,7 @@ func createAndStartVM(ctx context.Context) (*runningFirecracker, error) {
 		firecracker.WithLogger(log.NewEntry(logger)),
 	}
 
+	//Look for firecracker binary
 	firecrackerBinary, err := exec.LookPath("firecracker")
 	if err != nil {
 		return nil, err
@@ -499,83 +573,17 @@ func installSignalHandlers() {
 	}()
 }
 
-func (job benchJob) run(ctx context.Context, WarmVMs <-chan runningFirecracker) {
-	log.WithField("job", job).Info("Handling job")
-
-	err := queue.setjobReceived(ctx, job)
+func deleteVMMSockets() {
+	log.Debug("cc")
+	dir, err := ioutil.ReadDir(os.TempDir())
 	if err != nil {
-		log.WithError(err).Error("Could not set job received")
-		queue.setjobFailed(ctx, job, agentExecRes{Error: err.Error()})
-		return
+		log.WithError(err).Error("Failed to read directory")
 	}
-
-	// Get a ready-to-use microVM from the pool
-	vm := <-WarmVMs
-
-	// Defer cleanup of VM and VMM
-	go func() {
-		defer vm.vmmCancel()
-		vm.machine.Wait(vm.vmmCtx)
-	}()
-	defer vm.shutDown()
-
-	var reqJSON []byte
-
-	reqJSON, err = json.Marshal(agentRunReq{
-		ID:       job.ID,
-		Language: job.Language,
-		Code:     job.Code,
-		Variant:  "TODO",
-	})
-	if err != nil {
-		log.WithError(err).Error("Failed to marshal JSON request")
-		queue.setjobFailed(ctx, job, agentExecRes{Error: err.Error()})
-		return
-	}
-
-	err = queue.setjobRunning(ctx, job)
-	if err != nil {
-		log.WithError(err).Error("Could not set job running")
-		queue.setjobFailed(ctx, job, agentExecRes{Error: err.Error()})
-		return
-	}
-
-	var httpRes *http.Response
-	var agentRes agentExecRes
-
-	httpRes, err = http.Post("http://"+vm.ip.String()+":8080/run", "application/json", bytes.NewBuffer(reqJSON))
-	if err != nil {
-		log.WithError(err).Error("Failed to request execution to agent")
-		queue.setjobFailed(ctx, job, agentExecRes{Error: err.Error()})
-		return
-	}
-	json.NewDecoder(httpRes.Body).Decode(&agentRes)
-	log.WithField("result", agentRes).Info("Job execution finished")
-	if httpRes.StatusCode != 200 {
-		log.WithFields(log.Fields{
-			"httpRes":  httpRes,
-			"agentRes": agentRes,
-			"reqJSON":  string(reqJSON),
-		}).Error("Failed to compile and run code")
-		queue.setjobFailed(ctx, job, agentRes)
-		return
-	}
-
-	err = queue.setjobResult(ctx, job, agentRes)
-	if err != nil {
-		queue.setjobFailed(ctx, job, agentExecRes{Error: err.Error()})
-	}
-}
-
-func (vm runningFirecracker) shutDown() {
-	log.WithField("ip", vm.ip).Info("stopping")
-	vm.machine.StopVMM()
-	err := os.Remove(vm.machine.Cfg.SocketPath)
-	if err != nil {
-		log.WithError(err).Error("Failed to delete firecracker socket")
-	}
-	err = os.Remove("/tmp/rootfs-" + vm.vmmID + ".ext4")
-	if err != nil {
-		log.WithError(err).Error("Failed to delete firecracker rootfs")
+	for _, d := range dir {
+		log.WithField("d", d.Name()).Debug("considering")
+		if strings.Contains(d.Name(), fmt.Sprintf(".firecracker.sock-%d-", os.Getpid())) {
+			log.WithField("d", d.Name()).Debug("should delete")
+			os.Remove(path.Join([]string{"tmp", d.Name()}...))
+		}
 	}
 }
