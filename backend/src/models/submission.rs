@@ -69,6 +69,14 @@ pub struct SubmissionInput {
     pub cyclomatic_complexity: i32,
 }
 
+#[derive(Serialize, Deserialize, AsChangeset)]
+#[table_name = "submission"]
+pub struct SubmissionWorker {
+    pub id: Uuid,
+    pub code: String,
+    pub language: String,
+}
+
 impl Submission {
     pub fn find_all() -> Result<Vec<Self>, ApiError> {
         let conn = db::connection()?;
