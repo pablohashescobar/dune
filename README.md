@@ -1,3 +1,3 @@
 ## Dune
 
-Small clone of codespaces and replit using Firecracker MicroVM.
+Minimal clone of code sandbox using Firecracker MicroVM.
